@@ -6,7 +6,6 @@ async function anropa(systemprompt, userprompt, maxTokens) {
     headers: {
       'Content-Type': 'application/json',
       'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'prompt-caching-2024-07-31',
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
