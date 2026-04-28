@@ -1,16 +1,94 @@
-# React + Vite
+# Mattekompisen
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Adaptiv matteövningsapp för åk 6 som förbereder elever inför nationella matematikprovet.  
+Byggd med React + Vite, Claude API och Cloudflare Worker-proxy.
 
-Currently, two official plugins are available:
+**Live:** https://gunnarhirschfeldt-advisense.github.io/mattekompisen/
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## Funktioner
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Fem moduler:** Bråk & procent, Geometri, Statistik, Algebra, Taluppfattning
+- **Adaptiv svårighet:** Tre nivåer (E → C → A) med automatiska nivåförslag
+- **AI-genererade frågor** när frågbanken är slut
+- **AI-bedömning** av öppna svar med pedagogisk feedback
+- **Handskriftsinmatning:** Rita svar med finger (eller stylus) på iPad — Claude Vision tolkar handskriften
+- **Progress i localStorage** — ingen inloggning, ingen backend
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Stack
+
+| Del | Teknologi |
+|---|---|
+| Frontend | React 18 + Vite + Tailwind CSS |
+| AI | Claude API (`claude-sonnet-4-6`) via Cloudflare Worker |
+| Deploy | GitHub Pages via GitHub Actions |
+| Lagring | localStorage (per enhet) |
+
+---
+
+## Kom igång lokalt
+
+```bash
+# 1. Installera beroenden
+npm install
+
+# 2. Starta Cloudflare Worker lokalt (separat terminal)
+cd worker/
+npm install
+wrangler dev   # lyssnar på http://localhost:8787
+
+# 3. Sätt proxy-URL
+echo "VITE_PROXY_URL=http://localhost:8787" > .env.development
+
+# 4. Starta dev-server
+npm run dev
+```
+
+---
+
+## Deploy
+
+### Cloudflare Worker (proxy)
+```bash
+cd worker/
+wrangler secret put ANTHROPIC_KEY     # Anthropic API-nyckel
+wrangler secret put ALLOWED_ORIGIN    # https://gunnarhirschfeldt-advisense.github.io
+wrangler deploy
+```
+
+### GitHub Pages
+Sätt `VITE_PROXY_URL` som secret i GitHub-repot (Settings → Secrets → Actions).  
+Deploy sker automatiskt vid push till `main`.
+
+---
+
+## Projektstruktur
+
+```
+src/
+├── api/claudeApi.js          — frågegenerering, bedömning, Vision (handskrift)
+├── components/
+│   ├── QuestionCard.jsx      — delad frågkomponent (alla moduler)
+│   ├── HandwritingCanvas.jsx — rityta med stroke-historik och ångra
+│   ├── FeedbackCard.jsx
+│   ├── FigureRenderer.jsx    — SVG-validering och rendering
+│   ├── [Modul]Module.jsx     — en per ämnesmodul
+│   └── ...
+├── data/[modul]Bank.js       — statiska frågbankar
+├── utils/adaptiveEngine.js   — nivålogik, subtopic-vikter, progress-helpers
+└── pages/Startsida.jsx
+```
+
+---
+
+## Ny modul — checklista
+
+1. `src/data/[modul]Bank.js` med frågor enligt standardschema
+2. `src/components/[Modul]Module.jsx` med `INITIAL_PROGRESS`, `byggPrompt`, `SYSTEM_PROMPT`
+3. Lägg till rad i `src/data/moduler.js` med `implementerad: true`
+4. Lägg till route i `App.jsx`
+
+Se `CLAUDE.md` för fullständig arkitekturöversikt.

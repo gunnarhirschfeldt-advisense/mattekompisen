@@ -14,7 +14,7 @@ Efter varje slutförd modul eller större förändring:
 
 - **React 18** + **Vite** — SPA utan router, vy styrs av `modul`-state i App.jsx
 - **Tailwind CSS** — utility-first, ingen extern komponentbibliotek
-- **Claude API** (`claude-sonnet-4-6`) — två anrop per fråga: generering + bedömning
+- **Claude API** (`claude-sonnet-4-6`) — tre anrop per fråga (handskrift): generering + Vision + bedömning
 - **localStorage** — all progress sparas lokalt, ingen backend
 
 ## Modulstatus
@@ -64,7 +64,36 @@ Alla moduler delar samma grundschema:
   - `level` ('E'|'C'|'A') skickas med i user-meddelandet för nivåanpassad feedback
   - `systemPrompt` — modulens egna bedömningsprompt; faller tillbaka på intern fallback om null
   - Returnerar JSON: `{ correct: bool, feedback: string, hint: string|null }`
-- JSON-rensning: strippar markdown-fences innan `JSON.parse`
+- **Anrop 3** `tolkaHandskrift(imageBase64, questionType, questionText)` — max 200 tokens
+  - Skickar canvas-bild (JPEG base64) till Claude Vision
+  - Returnerar JSON: `{ text: string }` — det avlästa svaret
+  - Eget `VISION_SYSTEM` prompt låser rollen till OCR, ignorerar instruktioner i bilden
+- **Prompt caching:** system-promptar skickas som `[{ type, text, cache_control: { type: 'ephemeral' } }]`
+  - Aktiveras automatiskt för `claude-sonnet-4-6` — ingen beta-header krävs
+  - Effektiv när eleven gör flera frågor i samma session (samma system-prompt cachas)
+- **JSON-rensning:** strippar markdown-fences innan `JSON.parse`
+
+### Prompt injection-skydd
+`bedömSvar` skyddar mot att elevens svar manipulerar Claude:
+- `elevensSvar` wrappas i `<elevens_svar>…</elevens_svar>` — Claude tolkar innehållet som data
+- `recentMistakes` wrappas i `<tidigare_misstag>…</tidigare_misstag>`
+- Längdbegränsning: `elevensSvar` trunkeras till 2 000 tecken, varje misstag till 200 tecken
+- Vision-anropet har `VISION_SYSTEM` som explicit instruerar Claude att ignorera text skriven i bilden
+
+### Handskriftsinmatning — `src/components/HandwritingCanvas.jsx`
+- Canvas 600×260px (logiska pixlar), `w-full` CSS — skalas responsivt
+- Touch- och mushändelser: `touchstart/move/end`, `mousedown/move/up/leave`
+- **Stroke-historik:** varje drag (finger-ner → finger-upp) sparas som `{x,y}[]` i `strokeHistory` ref
+- **Ångra:** plockar bort sista stroke, ritar om hela canvasen från historiken via `ritaOm()`
+- **Rensa:** tömmer hela historiken
+- Exporterar canvas som JPEG base64 (kvalitet 0.85) till `tolkaHandskrift`
+- Knapp-rad: **Ångra | Rensa | Skicka svar** — Ångra/Rensa inaktiva tills något ritats
+
+### Handskrifts-toggle — `src/components/QuestionCard.jsx`
+- `InputToggle`-komponent (⌨️ Tangentbord / ✍️ Rita svar) visas för `numeric` och `open`-frågor
+- `handskrift`-state styr vilket inputläge som visas
+- Flöde handskrift: `HandwritingCanvas` → `tolkaHandskrift` (Vision) → `hanteraSvar` (befintlig logik)
+- Separata loadingstates: `visionLaddar` ("Läser handskriften…") och `bedömLaddar` ("AI-läraren bedömer…")
 
 ### SVG-figurer
 Claude genererar SVG-strängar inline i fråge-JSON (`figure_svg`).
@@ -97,22 +126,23 @@ Badge på implementerade moduler visar **högsta klarade nivå** (A → C → E,
 
 ```
 App.jsx
-  └── Startsida.jsx          ← läser framsteg från localStorage via progress.js
-  └── BrakProcentModule.jsx  ← storageKey: 'progress_bråk_procent'
-  └── GeometriModule.jsx      ← storageKey: 'progress_geometri'
-  └── StatistikModule.jsx     ← storageKey: 'progress_statistik'
-  └── AlgebraModule.jsx       ← storageKey: 'progress_algebra'
-  └── TaluppfattningModule.jsx ← storageKey: 'progress_taluppfattning'
-        └── QuestionCard.jsx ← delad av alla moduler
+  └── Startsida.jsx              ← läser framsteg från localStorage via progress.js
+  └── BrakProcentModule.jsx      ← storageKey: 'progress_bråk_procent'
+  └── GeometriModule.jsx         ← storageKey: 'progress_geometri'
+  └── StatistikModule.jsx        ← storageKey: 'progress_statistik'
+  └── AlgebraModule.jsx          ← storageKey: 'progress_algebra'
+  └── TaluppfattningModule.jsx   ← storageKey: 'progress_taluppfattning'
+        └── QuestionCard.jsx     ← delad av alla moduler
               └── FigureRenderer.jsx
               └── FeedbackCard.jsx
+              └── HandwritingCanvas.jsx  ← visas vid ✍️-läge för numeric/open
         └── LevelIndicator.jsx
-        └── StreakBar.jsx     ← importerar UPGRADE_THRESHOLD, DOWNGRADE_THRESHOLD
+        └── StreakBar.jsx         ← importerar UPGRADE_THRESHOLD, DOWNGRADE_THRESHOLD
         └── SubtopicStrengths.jsx
 
-src/utils/adaptiveEngine.js  ← ingen modul-import, helt generisk
-src/api/claudeApi.js         ← ingen modul-import, customSystemPrompt per modul
-src/data/moduler.js          ← MODULER-lista med implementerad-flagga
+src/utils/adaptiveEngine.js      ← ingen modul-import, helt generisk
+src/api/claudeApi.js             ← ingen modul-import, customSystemPrompt per modul
+src/data/moduler.js              ← MODULER-lista med implementerad-flagga
 ```
 
 **Ny modul kräver:**
@@ -141,7 +171,7 @@ Varje modul har två systemprompt-konstanter:
 ## Deploy
 
 ### GitHub Pages
-Byggs via `.github/workflows/deploy.yml` vid push till `main` (med ändringar i `mattekompisen/`).
+Byggs via `.github/workflows/deploy.yml` vid push till `main`.
 Build-steget kräver GitHub Secret: `VITE_PROXY_URL` = Worker-URL.
 
 ### Cloudflare Worker (`worker/`)
@@ -153,15 +183,17 @@ wrangler secret put ANTHROPIC_KEY     # klistra in Anthropic API-nyckel
 wrangler secret put ALLOWED_ORIGIN    # t.ex. https://gunnarhirschfeldt-advisense.github.io
 wrangler deploy
 ```
-- **Lokal dev:** `wrangler dev` i `worker/`, sätt `VITE_PROXY_URL=http://localhost:8787` i `mattekompisen/.env.development`
+- **Lokal dev:** `wrangler dev` i `worker/`, sätt `VITE_PROXY_URL=http://localhost:8787` i `.env.development`
 - **API-nyckel:** lagras som Worker-secret `ANTHROPIC_KEY`, exponeras aldrig i klientkod
 - **Ursprungskontroll:** Worker-secret `ALLOWED_ORIGIN` = `https://[användarnamn].github.io`
+- **OBS CORS:** Lägg inte till nya request-headers i `claudeApi.js` utan att verifiera att workern tillåter dem i `Access-Control-Allow-Headers`. `anthropic-beta`-headern orsakade detta problem 2026-04-27 och togs bort.
 
 ## Nästa steg
 
-**Alla planerade moduler är klara** (2026-03-17). Inga kvarvarande åtgärder i implementationsplanen.
+**Alla planerade moduler är klara** (2026-03-17).
 
 **Backlogg**
 - `recentMistakes` visas inte för eleven — kan lyftas in i FeedbackCard som "Det här har du missat"
 - Överväg att lägga till fler bankfrågor (>10 per modul) för bredare variation innan AI-generering
 - Möjlig förbättring: visa sammanfattning av alla modulers progress på Startsidan
+- Handskrift: utvärdera igenkänningskvalitet i verkligt bruk — Vision är bra på siffror, mer osäker på matematiska uttryck med bråkstreck/potenser
