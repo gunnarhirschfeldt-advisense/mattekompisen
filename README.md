@@ -31,19 +31,16 @@ Byggd med React + Vite, Claude API och Cloudflare Worker-proxy.
 
 ## Kom igång lokalt
 
+> **OBS:** Cloudflare Worker-koden (`worker/`) finns inte i repot — den är deployad separat och hanteras utanför versionshanteringen. Kontakta projektägaren för Worker-URL och setup-instruktioner.
+
 ```bash
 # 1. Installera beroenden
 npm install
 
-# 2. Starta Cloudflare Worker lokalt (separat terminal)
-cd worker/
-npm install
-wrangler dev   # lyssnar på http://localhost:8787
+# 2. Sätt proxy-URL (peka mot befintlig Worker eller lokal wrangler dev)
+echo "VITE_PROXY_URL=https://<din-worker>.workers.dev" > .env.development
 
-# 3. Sätt proxy-URL
-echo "VITE_PROXY_URL=http://localhost:8787" > .env.development
-
-# 4. Starta dev-server
+# 3. Starta dev-server
 npm run dev
 ```
 
